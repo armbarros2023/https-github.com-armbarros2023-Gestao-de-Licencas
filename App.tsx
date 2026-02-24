@@ -1,6 +1,7 @@
 
 import React from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { AnimatePresence } from 'framer-motion';
 
 import Dashboard from './components/Dashboard';
 import LicenseList from './components/LicenseList';
@@ -14,16 +15,12 @@ import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import { AppProvider, useApp } from './context/AppContext';
 
-const AppRoutes: React.FC = () => {
-  const { isAuthenticated } = useApp();
-
-  if (!isAuthenticated) {
-    return <Login />;
-  }
-
+const AnimatedRoutes: React.FC = () => {
+  const location = useLocation();
+  
   return (
-    <Layout>
-      <Routes>
+    <AnimatePresence mode="wait">
+      <Routes location={location}>
         <Route path="/" element={<Dashboard />} />
         
         {/* Licenses: List is public, Create/Edit is Admin only */}
@@ -37,8 +34,6 @@ const AppRoutes: React.FC = () => {
         
         <Route path="/licencas/editar/:id" element={
           <ProtectedRoute allowedRoles={['admin', 'user']}>
-             {/* User can view, logic inside component handles readonly state, 
-                 but we wrap it here to ensure auth context is ready */}
             <LicenseForm />
           </ProtectedRoute>
         } />
@@ -79,6 +74,20 @@ const AppRoutes: React.FC = () => {
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+    </AnimatePresence>
+  );
+};
+
+const AppRoutes: React.FC = () => {
+  const { isAuthenticated } = useApp();
+
+  if (!isAuthenticated) {
+    return <Login />;
+  }
+
+  return (
+    <Layout>
+      <AnimatedRoutes />
     </Layout>
   );
 };

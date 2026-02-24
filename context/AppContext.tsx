@@ -55,7 +55,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [licenses, setLicenses] = useState<License[]>(() => {
     const saved = localStorage.getItem('licenses_pro_data');
-    return saved ? JSON.parse(saved) : [];
+    if (!saved) return [];
+    try {
+      const parsed = JSON.parse(saved);
+      // Migration: ensure currentLicenseFiles exists and is an array
+      return parsed.map((l: any) => ({
+        ...l,
+        currentLicenseFiles: Array.isArray(l.currentLicenseFiles) 
+          ? l.currentLicenseFiles 
+          : (l.currentLicenseFile ? [l.currentLicenseFile] : [])
+      }));
+    } catch (e) {
+      console.error("Error parsing licenses:", e);
+      return [];
+    }
   });
 
   const [companies, setCompanies] = useState<Company[]>(() => {

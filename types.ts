@@ -38,9 +38,10 @@ export interface License {
   name: string;
   type: string;
   expirationDate: string;
-  currentLicenseFile?: LicenseFile;
+  currentLicenseFiles: LicenseFile[];
   renewalDocuments: LicenseFile[];
   notes?: string;
+  tags?: string[];
 }
 
 export type Theme = 'light' | 'dark';

@@ -39,8 +39,9 @@ const UserList: React.FC = () => {
                    </Link>
                    <button 
                     onClick={() => {
-                        if (users.length <= 1) {
-                            alert("Não é possível remover o único usuário do sistema.");
+                        const adminCount = users.filter(u => u.role === 'admin').length;
+                        if (user.role === 'admin' && adminCount <= 1) {
+                            alert("Não é possível remover o único administrador do sistema.");
                             return;
                         }
                         if (confirm('Tem certeza que deseja remover este usuário?')) {

@@ -103,16 +103,18 @@ const UserForm: React.FC = () => {
                   <div className="relative">
                     <select 
                         value={role}
+                        disabled={!id}
                         onChange={(e) => setRole(e.target.value as UserRole)}
-                        className="w-full appearance-none px-6 py-4 bg-slate-50 dark:bg-slate-800/50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                        className={`w-full appearance-none px-6 py-4 bg-slate-50 dark:bg-slate-800/50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold text-slate-700 dark:text-slate-200 ${!id ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}
                     >
                         <option value="user">Colaborador (Visualização)</option>
-                        <option value="admin">Administrador (Total)</option>
+                        {id && <option value="admin">Administrador (Total)</option>}
                     </select>
                     <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
                         <Shield className="w-4 h-4" />
                     </div>
                   </div>
+                  {!id && <p className="text-[10px] text-slate-400 font-bold ml-1 italic">* Novos cadastros são limitados ao perfil de Colaborador.</p>}
                 </div>
 
                 <div className="space-y-3">

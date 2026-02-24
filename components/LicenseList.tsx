@@ -2,9 +2,11 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { 
-  Search, Plus, FileText, Calendar, Trash2, Edit2, ChevronDown, Eye, Building2, ExternalLink, Printer
+  Search, Plus, FileText, Calendar, Trash2, Edit2, ChevronDown, Eye, Building2, ExternalLink, Printer, Download, Archive
 } from 'lucide-react';
 import { format, parseISO, differenceInDays } from 'date-fns';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import { useApp } from '../context/AppContext';
 import { LICENSE_TYPES, STATUS_COLORS } from '../constants';
 
@@ -17,6 +19,9 @@ const LicenseList: React.FC = () => {
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterCompany, setFilterCompany] = useState(initialCompanyFilter);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterDateRange, setFilterDateRange] = useState('all');
+  const [filterTag, setFilterTag] = useState('all');
 
   // Sync state with URL params
   useEffect(() => {
@@ -38,13 +43,6 @@ const LicenseList: React.FC = () => {
     setSearchParams(searchParams);
   };
 
-  const filtered = licenses.filter(l => {
-    const matchesSearch = l.name.toLowerCase().includes(search.toLowerCase());
-    const matchesType = filterType === 'all' || l.type === filterType;
-    const matchesCompany = filterCompany === 'all' || l.companyId === filterCompany;
-    return matchesSearch && matchesType && matchesCompany;
-  });
-
   const getStatus = (date: string) => {
     const today = new Date();
     const expDate = parseISO(date);
@@ -52,6 +50,30 @@ const LicenseList: React.FC = () => {
     if (differenceInDays(expDate, today) < 60) return 'warning';
     return 'active';
   };
+
+  const allTags = Array.from(new Set(licenses.flatMap(l => l.tags || []))).sort();
+
+  const filtered = licenses.filter(l => {
+    const status = getStatus(l.expirationDate);
+    const today = new Date();
+    const expDate = parseISO(l.expirationDate);
+    const daysToExpiry = differenceInDays(expDate, today);
+
+    const matchesSearch = l.name.toLowerCase().includes(search.toLowerCase()) || 
+                         l.notes?.toLowerCase().includes(search.toLowerCase());
+    const matchesType = filterType === 'all' || l.type === filterType;
+    const matchesCompany = filterCompany === 'all' || l.companyId === filterCompany;
+    const matchesStatus = filterStatus === 'all' || status === filterStatus;
+    const matchesTag = filterTag === 'all' || (l.tags && l.tags.includes(filterTag));
+    
+    let matchesDate = true;
+    if (filterDateRange === 'expired') matchesDate = daysToExpiry < 0;
+    else if (filterDateRange === '30') matchesDate = daysToExpiry >= 0 && daysToExpiry <= 30;
+    else if (filterDateRange === '60') matchesDate = daysToExpiry >= 0 && daysToExpiry <= 60;
+    else if (filterDateRange === '90') matchesDate = daysToExpiry >= 0 && daysToExpiry <= 90;
+
+    return matchesSearch && matchesType && matchesCompany && matchesStatus && matchesTag && matchesDate;
+  });
 
   const getCompanyName = (id: string) => companies.find(c => c.id === id)?.fantasyName || 'Desconhecida';
 
@@ -78,6 +100,35 @@ const LicenseList: React.FC = () => {
 
   const handlePrintReport = () => {
     window.print();
+  };
+
+  const handleDownloadAll = async (license: any) => {
+    const zip = new JSZip();
+    const folder = zip.folder(license.name.replace(/\s+/g, '_'));
+    if (!folder) return;
+
+    const currentFiles = Array.isArray(license.currentLicenseFiles) ? license.currentLicenseFiles : [];
+    const renewalDocs = Array.isArray(license.renewalDocuments) ? license.renewalDocuments : [];
+    const allFiles = [...currentFiles, ...renewalDocs];
+    
+    if (allFiles.length === 0) {
+      alert("Nenhum arquivo para baixar.");
+      return;
+    }
+
+    const promises = allFiles.map(async (file) => {
+      try {
+        const response = await fetch(file.url);
+        const blob = await response.blob();
+        folder.file(file.name, blob);
+      } catch (e) {
+        console.error("Error fetching file:", file.name, e);
+      }
+    });
+
+    await Promise.all(promises);
+    const content = await zip.generateAsync({ type: 'blob' });
+    saveAs(content, `${license.name.replace(/\s+/g, '_')}_completo.zip`);
   };
 
   return (
@@ -112,47 +163,92 @@ const LicenseList: React.FC = () => {
       </div>
 
       {/* Filters Section - Hidden on Print */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white dark:bg-slate-900 p-4 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm print:hidden">
-        <div className="md:col-span-2 relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-          <input 
-            type="text" 
-            placeholder="Pesquisar por nome do documento..." 
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold text-slate-700 dark:text-slate-200"
-          />
+      <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm print:hidden space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="md:col-span-2 relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Pesquisar por nome ou observações..." 
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold text-slate-700 dark:text-slate-200"
+            />
+          </div>
+
+          <div className="relative group">
+            <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-hover:text-indigo-500 transition-colors" />
+            <select 
+              value={filterCompany}
+              onChange={(e) => handleCompanyFilterChange(e.target.value)}
+              className="w-full appearance-none pl-11 pr-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold cursor-pointer text-slate-700 dark:text-slate-200"
+            >
+              <option value="all">Todas as Empresas</option>
+              {companies
+                .sort((a, b) => a.fantasyName.localeCompare(b.fantasyName))
+                .map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.fantasyName} ({getCompanyLicenseCount(c.id)})
+                  </option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+          </div>
+
+          <div className="relative">
+            <select 
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="w-full appearance-none px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold cursor-pointer text-slate-700 dark:text-slate-200"
+            >
+              <option value="all">Todos os Tipos</option>
+              {LICENSE_TYPES.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+            </select>
+            <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+          </div>
         </div>
 
-        <div className="relative group">
-          <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-hover:text-indigo-500 transition-colors" />
-          <select 
-            value={filterCompany}
-            onChange={(e) => handleCompanyFilterChange(e.target.value)}
-            className="w-full appearance-none pl-11 pr-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold cursor-pointer text-slate-700 dark:text-slate-200"
-          >
-            <option value="all">Todas as Empresas</option>
-            {companies
-              .sort((a, b) => a.fantasyName.localeCompare(b.fantasyName))
-              .map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.fantasyName} ({getCompanyLicenseCount(c.id)})
-                </option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-slate-50 dark:border-slate-800">
+          <div className="relative">
+            <select 
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="w-full appearance-none px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold cursor-pointer text-slate-700 dark:text-slate-200"
+            >
+              <option value="all">Todos os Status</option>
+              <option value="active">Vigente</option>
+              <option value="warning">Atenção (Próximo ao Vencimento)</option>
+              <option value="expired">Expirado</option>
+            </select>
+            <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+          </div>
 
-        <div className="relative">
-          <select 
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="w-full appearance-none px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold cursor-pointer text-slate-700 dark:text-slate-200"
-          >
-            <option value="all">Todos os Tipos</option>
-            {LICENSE_TYPES.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-          </select>
-          <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+          <div className="relative">
+            <select 
+              value={filterDateRange}
+              onChange={(e) => setFilterDateRange(e.target.value)}
+              className="w-full appearance-none px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold cursor-pointer text-slate-700 dark:text-slate-200"
+            >
+              <option value="all">Qualquer Data de Expiração</option>
+              <option value="expired">Já Expirados</option>
+              <option value="30">Vencendo em 30 dias</option>
+              <option value="60">Vencendo em 60 dias</option>
+              <option value="90">Vencendo em 90 dias</option>
+            </select>
+            <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+          </div>
+
+          <div className="relative">
+            <select 
+              value={filterTag}
+              onChange={(e) => setFilterTag(e.target.value)}
+              className="w-full appearance-none px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold cursor-pointer text-slate-700 dark:text-slate-200"
+            >
+              <option value="all">Todas as Tags</option>
+              {allTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+            </select>
+            <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+          </div>
         </div>
       </div>
 
@@ -163,7 +259,7 @@ const LicenseList: React.FC = () => {
             const status = getStatus(license.expirationDate);
             const statusLabel = status === 'expired' ? 'CRÍTICO' : status === 'warning' ? 'ATENÇÃO' : 'VIGENTE';
             const renewalUrl = getRenewalLink(license.companyId, license.type);
-            const hasFile = !!license.currentLicenseFile;
+            const hasFiles = Array.isArray(license.currentLicenseFiles) && license.currentLicenseFiles.length > 0;
             
             return (
               <div key={license.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2rem] p-8 shadow-sm hover:shadow-xl transition-all duration-300 group flex flex-col h-full relative overflow-hidden print:shadow-none print:border-gray-300 print:rounded-lg">
@@ -172,20 +268,29 @@ const LicenseList: React.FC = () => {
                     {statusLabel}
                   </span>
                   <div className="flex gap-1 print:hidden">
-                    {hasFile && (
-                      <button 
-                        onClick={() => handleQuickPrint(license.currentLicenseFile?.url)} 
-                        className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-indigo-600 transition-all border border-transparent hover:border-indigo-100"
-                        title="Imprimir Cópia da Licença"
-                      >
-                        <Printer className="w-4 h-4" />
-                      </button>
+                    {hasFiles && (
+                      <>
+                        <button 
+                          onClick={() => handleQuickPrint(license.currentLicenseFiles?.[0]?.url)} 
+                          className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-all border border-transparent hover:border-indigo-100 dark:hover:border-indigo-800"
+                          title="Imprimir Cópia da Licença"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDownloadAll(license)} 
+                          className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-all border border-transparent hover:border-indigo-100 dark:hover:border-indigo-800"
+                          title="Baixar Todos os Arquivos (.zip)"
+                        >
+                          <Archive className="w-4 h-4" />
+                        </button>
+                      </>
                     )}
-                    <Link to={`/licencas/editar/${license.id}`} className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-indigo-600 transition-all border border-transparent hover:border-indigo-100" title={userRole === 'admin' ? "Editar" : "Visualizar"}>
+                    <Link to={`/licencas/editar/${license.id}`} className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-all border border-transparent hover:border-indigo-100 dark:hover:border-indigo-800" title={userRole === 'admin' ? "Editar" : "Visualizar"}>
                       {userRole === 'admin' ? <Edit2 className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </Link>
                     {userRole === 'admin' && (
-                      <button onClick={() => confirm('Excluir documento?') && deleteLicense(license.id)} className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-rose-600 transition-all border border-transparent hover:border-rose-100">
+                      <button onClick={() => confirm('Excluir documento?') && deleteLicense(license.id)} className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-all border border-transparent hover:border-rose-100 dark:hover:border-rose-800">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     )}
@@ -199,7 +304,12 @@ const LicenseList: React.FC = () => {
                    </div>
                    
                    <h3 className="text-xl font-black text-slate-800 dark:text-slate-100 mb-2 leading-tight print:text-lg">{license.name}</h3>
-                   <span className="text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg">{license.type}</span>
+                   <div className="flex flex-wrap gap-2 mt-2">
+                     <span className="text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg">{license.type}</span>
+                     {license.tags?.map(tag => (
+                       <span key={tag} className="text-[10px] font-bold text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-3 py-1 rounded-lg border border-indigo-100 dark:border-indigo-900/30">#{tag}</span>
+                     ))}
+                   </div>
                 </div>
 
                 <div className="space-y-3 mb-8 print:mb-2">

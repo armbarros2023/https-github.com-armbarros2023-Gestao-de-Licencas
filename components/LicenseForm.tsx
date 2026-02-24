@@ -4,9 +4,11 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { 
   ArrowLeft, Save, Upload, File, Trash2, CheckCircle, 
   FileText, AlertCircle, Building2, ChevronDown, Download, 
-  Printer, Lock, StickyNote, AlertTriangle
+  Printer, Lock, StickyNote, AlertTriangle, Archive
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import { useApp } from '../context/AppContext';
 import { LICENSE_TYPES } from '../constants';
 import { LicenseFile, Company } from '../types';
@@ -147,101 +149,44 @@ const NotesSection: React.FC<{
   </div>
 );
 
-const CopySection: React.FC<{
-  currentFile: LicenseFile | null;
+const FileList: React.FC<{
+  files: LicenseFile[];
   isAdmin: boolean;
-  onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onRemove: (id: string) => void;
   onPrint: (url: string) => void;
-  error?: string | null;
-}> = ({ currentFile, isAdmin, onUpload, onRemove, onPrint, error }) => (
-  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] p-8 shadow-xl">
-    <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
-      <div className="bg-emerald-100 dark:bg-emerald-900/30 p-2 rounded-xl text-emerald-600">
-        <CheckCircle className="w-6 h-6" />
-      </div>
-      <div>
-        <h2 className="text-xl font-black tracking-tight">Cópia da Licença</h2>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Documento Final Vigente</p>
-      </div>
-    </div>
-
-    {error && (
-      <div className="mb-6 p-4 bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-900/50 rounded-2xl flex items-center gap-3 text-rose-600 dark:text-rose-400">
-        <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-        <p className="text-sm font-bold">{error}</p>
-      </div>
-    )}
-
-    <div className="flex justify-center">
-      {currentFile ? (
-        <div className="w-full max-w-4xl space-y-6">
-          <div className="p-8 bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900/30 rounded-3xl flex flex-col items-center justify-center text-center">
-            <File className="w-16 h-16 text-emerald-600 mb-4" />
-            <p className="text-xl font-black text-slate-700 dark:text-slate-200 break-all">{currentFile.name}</p>
-            <p className="text-xs font-bold text-slate-400 uppercase mt-2">Disponível para Download e Impressão</p>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <a href={currentFile.url} download={currentFile.name} className="flex items-center justify-center gap-2 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all shadow-lg shadow-indigo-600/30 active:scale-95">
-              <Download className="w-4 h-4" /> Baixar
-            </a>
-            <button type="button" onClick={() => onPrint(currentFile.url)} className="flex items-center justify-center gap-2 py-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all active:scale-95">
-              <Printer className="w-4 h-4" /> Imprimir
-            </button>
-            {isAdmin && (
-              <button type="button" onClick={() => onRemove(currentFile.id)} className="flex items-center justify-center gap-2 py-3 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/10 dark:hover:bg-rose-900/20 text-rose-600 rounded-xl font-bold uppercase text-[10px] tracking-widest transition-all">
-                <Trash2 className="w-4 h-4" /> Remover
-              </button>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="w-full text-center py-10">
-          {isAdmin ? (
-            <label className="block p-12 border-4 border-dashed border-slate-100 dark:border-slate-800 rounded-[2.5rem] hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-all group">
-              <input type="file" className="hidden" onChange={onUpload} accept={ALLOWED_TYPES.join(',')} />
-              <Upload className="w-12 h-12 text-slate-300 mx-auto mb-4 group-hover:text-indigo-500 group-hover:scale-110 transition-all" />
-              <p className="text-sm font-black uppercase tracking-widest text-slate-500 group-hover:text-indigo-600 transition-colors">Fazer Upload da Licença</p>
-              <p className="text-[10px] font-bold text-slate-300 mt-2 uppercase">PDF ou Imagem (Máx 5MB)</p>
-            </label>
-          ) : (
-            <div className="p-12 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-[2.5rem] text-slate-400">
-              <Lock className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p className="font-bold">Nenhum documento disponível</p>
-              <p className="text-xs mt-2">Aguarde o upload do administrador</p>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  </div>
-);
-
-const RenewalSection: React.FC<{
-  documents: LicenseFile[];
-  isAdmin: boolean;
+  onDownloadAll: () => void;
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+  iconColor: string;
   onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onRemove: (id: string) => void;
-  onPrint: (url: string) => void;
-}> = ({ documents, isAdmin, onUpload, onRemove, onPrint }) => (
+}> = ({ files, isAdmin, onRemove, onPrint, onDownloadAll, title, subtitle, icon, iconColor, onUpload }) => (
   <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] p-8 shadow-xl">
     <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
       <div className="flex items-center gap-3">
-        <div className="bg-amber-100 dark:bg-amber-900/30 p-2 rounded-xl text-amber-600">
-          <AlertCircle className="w-6 h-6" />
+        <div className={`p-2 rounded-xl ${iconColor}`}>
+          {icon}
         </div>
         <div>
-          <h2 className="text-xl font-black tracking-tight">Renovação-Documentos</h2>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Protocolos, Formulários e Guias</p>
+          <h2 className="text-xl font-black tracking-tight">{title}</h2>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{subtitle}</p>
         </div>
       </div>
+      {files.length > 1 && (
+        <button 
+          type="button" 
+          onClick={onDownloadAll}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black uppercase text-[10px] tracking-widest transition-all shadow-lg shadow-indigo-600/20 active:scale-95"
+        >
+          <Archive className="w-4 h-4" /> Baixar Todos (.zip)
+        </button>
+      )}
     </div>
 
     <div className="space-y-4">
-      {documents.length > 0 ? (
+      {files.length > 0 ? (
         <div className="grid grid-cols-1 gap-3">
-          {documents.map(doc => (
+          {files.map(doc => (
             <div key={doc.id} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex items-center justify-between group hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
               <div className="flex items-center gap-4 overflow-hidden">
                 <div className="bg-white dark:bg-slate-900 p-3 rounded-xl shadow-sm">
@@ -271,7 +216,7 @@ const RenewalSection: React.FC<{
       ) : (
         <div className="flex items-center justify-center p-12 text-center text-slate-400 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-[2rem]">
           <div>
-            <p className="font-bold text-sm">Nenhum documento de renovação listado.</p>
+            <p className="font-bold text-sm">Nenhum documento listado.</p>
             {!isAdmin && <p className="text-xs mt-1">O administrador ainda não adicionou arquivos.</p>}
           </div>
         </div>
@@ -279,15 +224,78 @@ const RenewalSection: React.FC<{
 
       {isAdmin && (
         <label className="block p-4 bg-slate-50 dark:bg-slate-800/30 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl hover:bg-white hover:border-indigo-400 dark:hover:bg-slate-800 cursor-pointer transition-all text-center mt-6">
-          <input type="file" className="hidden" onChange={onUpload} accept={ALLOWED_TYPES.join(',')} />
+          <input type="file" className="hidden" multiple onChange={onUpload} accept={ALLOWED_TYPES.join(',')} />
           <span className="text-xs font-black uppercase tracking-widest text-indigo-600 flex items-center justify-center gap-2">
-            <Upload className="w-4 h-4" /> Adicionar Arquivo de Renovação
+            <Upload className="w-4 h-4" /> Adicionar Arquivos
           </span>
         </label>
       )}
     </div>
   </div>
 );
+
+const TagsSection: React.FC<{
+  tags: string[];
+  setTags: (v: string[]) => void;
+  isAdmin: boolean;
+}> = ({ tags, setTags, isAdmin }) => {
+  const [inputValue, setInputValue] = useState('');
+
+  const handleAddTag = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && inputValue.trim()) {
+      e.preventDefault();
+      if (!tags.includes(inputValue.trim())) {
+        setTags([...tags, inputValue.trim()]);
+      }
+      setInputValue('');
+    }
+  };
+
+  const removeTag = (tagToRemove: string) => {
+    if (!isAdmin) return;
+    setTags(tags.filter(t => t !== tagToRemove));
+  };
+
+  return (
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] p-10 shadow-xl">
+      <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-4 mb-6">
+        <div className="bg-indigo-100 dark:bg-indigo-900/30 p-2 rounded-xl text-indigo-600">
+          <AlertCircle className="w-6 h-6" />
+        </div>
+        <div>
+          <h2 className="text-xl font-black tracking-tight">Tags Personalizadas</h2>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Organize por categorias ou projetos</p>
+        </div>
+      </div>
+      
+      {isAdmin && (
+        <input 
+          type="text"
+          value={inputValue}
+          onChange={e => setInputValue(e.target.value)}
+          onKeyDown={handleAddTag}
+          placeholder="Pressione Enter para adicionar uma tag..."
+          className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800/50 border-none rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold mb-4"
+        />
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        {tags.length > 0 ? tags.map(tag => (
+          <span key={tag} className="flex items-center gap-2 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-full text-xs font-black uppercase tracking-widest border border-indigo-100 dark:border-indigo-900/50">
+            {tag}
+            {isAdmin && (
+              <button type="button" onClick={() => removeTag(tag)} className="hover:text-rose-500 transition-colors">
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
+          </span>
+        )) : (
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest italic">Nenhuma tag adicionada</p>
+        )}
+      </div>
+    </div>
+  );
+};
 
 // --- Main Component ---
 
@@ -300,9 +308,10 @@ const LicenseForm: React.FC = () => {
   const [companyId, setCompanyId] = useState(companies[0]?.id || '');
   const [type, setType] = useState('Cetesb');
   const [expirationDate, setExpirationDate] = useState('');
-  const [currentFile, setCurrentFile] = useState<LicenseFile | null>(null);
+  const [currentFiles, setCurrentFiles] = useState<LicenseFile[]>([]);
   const [renewalDocs, setRenewalDocs] = useState<LicenseFile[]>([]);
   const [notes, setNotes] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const isAdmin = userRole === 'admin';
@@ -315,9 +324,10 @@ const LicenseForm: React.FC = () => {
         setCompanyId(existing.companyId);
         setType(existing.type);
         setExpirationDate(existing.expirationDate.split('T')[0]);
-        setCurrentFile(existing.currentLicenseFile || null);
+        setCurrentFiles(existing.currentLicenseFiles || []);
         setRenewalDocs(existing.renewalDocuments);
         setNotes(existing.notes || '');
+        setTags(existing.tags || []);
       }
     }
   }, [id, licenses]);
@@ -335,31 +345,34 @@ const LicenseForm: React.FC = () => {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, isCurrent: boolean) => {
     if (!isAdmin) return;
     setUploadError(null);
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    // Security Validation
-    const error = validateFile(file);
-    if (error) {
-      setUploadError(error);
-      return;
+    const newFiles: LicenseFile[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const error = validateFile(file);
+      if (error) {
+        setUploadError(error);
+        continue;
+      }
+
+      newFiles.push({
+        id: Math.random().toString(36).substr(2, 9),
+        name: file.name,
+        url: URL.createObjectURL(file),
+        uploadedAt: new Date().toISOString()
+      });
     }
 
-    const newFile: LicenseFile = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: file.name,
-      url: URL.createObjectURL(file),
-      uploadedAt: new Date().toISOString()
-    };
-
-    if (isCurrent) setCurrentFile(newFile);
-    else setRenewalDocs(prev => [...prev, newFile]);
+    if (isCurrent) setCurrentFiles(prev => [...prev, ...newFiles]);
+    else setRenewalDocs(prev => [...prev, ...newFiles]);
     e.target.value = '';
   };
 
   const removeFile = (fileId: string, isCurrent: boolean) => {
     if (!isAdmin) return;
-    if (isCurrent) setCurrentFile(null);
+    if (isCurrent) setCurrentFiles(prev => prev.filter(f => f.id !== fileId));
     else setRenewalDocs(prev => prev.filter(f => f.id !== fileId));
   };
 
@@ -373,6 +386,23 @@ const LicenseForm: React.FC = () => {
     }
   };
 
+  const handleDownloadAll = async (files: LicenseFile[], zipName: string) => {
+    const zip = new JSZip();
+    const folder = zip.folder(zipName);
+    
+    if (!folder) return;
+
+    const promises = files.map(async (file) => {
+      const response = await fetch(file.url);
+      const blob = await response.blob();
+      folder.file(file.name, blob);
+    });
+
+    await Promise.all(promises);
+    const content = await zip.generateAsync({ type: 'blob' });
+    saveAs(content, `${zipName}.zip`);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin) return;
@@ -383,9 +413,10 @@ const LicenseForm: React.FC = () => {
       companyId,
       type,
       expirationDate: new Date(expirationDate).toISOString(),
-      currentLicenseFile: currentFile || undefined,
+      currentLicenseFiles: currentFiles,
       renewalDocuments: renewalDocs,
-      notes
+      notes,
+      tags
     };
 
     if (id) updateLicense(id, data);
@@ -420,24 +451,35 @@ const LicenseForm: React.FC = () => {
           isAdmin={isAdmin}
         />
 
+        <TagsSection tags={tags} setTags={setTags} isAdmin={isAdmin} />
+
         <NotesSection notes={notes} setNotes={setNotes} isAdmin={isAdmin} />
 
         <div className="space-y-8">
-          <CopySection 
-            currentFile={currentFile} 
-            isAdmin={isAdmin} 
+          <FileList 
+            files={currentFiles}
+            isAdmin={isAdmin}
             onUpload={(e) => handleFileUpload(e, true)}
             onRemove={(id) => removeFile(id, true)}
             onPrint={handlePrint}
-            error={uploadError}
+            onDownloadAll={() => handleDownloadAll(currentFiles, `Licencas_${name.replace(/\s+/g, '_')}`)}
+            title="Cópias das Licenças"
+            subtitle="Documentos Finais Vigentes"
+            icon={<CheckCircle className="w-6 h-6" />}
+            iconColor="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600"
           />
           
-          <RenewalSection 
-            documents={renewalDocs} 
+          <FileList 
+            files={renewalDocs}
             isAdmin={isAdmin}
             onUpload={(e) => handleFileUpload(e, false)}
             onRemove={(id) => removeFile(id, false)}
             onPrint={handlePrint}
+            onDownloadAll={() => handleDownloadAll(renewalDocs, `Documentos_Renovacao_${name.replace(/\s+/g, '_')}`)}
+            title="Documentos de Renovação"
+            subtitle="Protocolos, Formulários e Guias"
+            icon={<AlertCircle className="w-6 h-6" />}
+            iconColor="bg-amber-100 dark:bg-amber-900/30 text-amber-600"
           />
         </div>
 
